@@ -18,6 +18,8 @@ SKIP_SD=0
 CLEAN_MODE=0
 GAME_FILTER=""
 CSV_MODE=0
+JSON_MODE=0
+WARN_AT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -27,11 +29,14 @@ while [[ $# -gt 0 ]]; do
             echo "Shows shader cache and compatdata usage on Steam Deck."
             echo ""
             echo "Options:"
-            echo "  --clean        Scan for orphaned cache entries and offer to delete them"
-            echo "  --csv          Export report as CSV (type,location,appid,name,size_bytes)"
-            echo "  --game <name>  Show cache usage for a specific game (partial name match)"
-            echo "  --nosd         Skip SD card storage scan"
-            echo "  --help         Show this help message"
+            echo "  --clean          Scan for orphaned cache entries and offer to delete them"
+            echo "  --csv            Export report as CSV (type,location,appid,name,size_bytes)"
+            echo "  --game <name>    Show cache usage for a specific game (partial name match)"
+            echo "  --json           Export report as JSON"
+            echo "  --nosd           Skip SD card storage scan"
+            echo "  --top <N>        Show top N entries per section (default: 10)"
+            echo "  --warn-at <size> Warn if total cache usage exceeds size (e.g. 20G, 500M)"
+            echo "  --help           Show this help message"
             echo ""
             echo "Source: https://github.com/jaydarkseed757/deck-tools"
             exit 0
@@ -45,6 +50,18 @@ while [[ $# -gt 0 ]]; do
         --csv)
             CSV_MODE=1
             ;;
+        --json)
+            JSON_MODE=1
+            ;;
+        --warn-at)
+            if [[ -z "$2" || ! "${2^^}" =~ ^[0-9]+(\.[0-9]+)?(T|G|M|K)(I?B)?$ ]]; then
+                echo "Error: --warn-at requires a size argument (e.g. 20G, 500M, 1.5T)" >&2
+                echo "Run '$(basename "$0") --help' for usage." >&2
+                exit 1
+            fi
+            WARN_AT="$2"
+            shift
+            ;;
         --game)
             if [[ -z "$2" || "$2" == --* ]]; then
                 echo "Error: --game requires a name argument" >&2
@@ -52,6 +69,15 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             GAME_FILTER="$2"
+            shift
+            ;;
+        --top)
+            if [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]]; then
+                echo "Error: --top requires a positive integer argument" >&2
+                echo "Run '$(basename "$0") --help' for usage." >&2
+                exit 1
+            fi
+            TOP_N="$2"
             shift
             ;;
         *)
@@ -62,6 +88,22 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+
+parse_size() {
+    local input="${1^^}"
+    if [[ "$input" =~ ^([0-9]+(\.[0-9]+)?)(T|G|M|K) ]]; then
+        local num="${BASH_REMATCH[1]}"
+        local unit="${BASH_REMATCH[3]}"
+        case "$unit" in
+            T) awk "BEGIN {printf \"%d\", $num * 1099511627776}" ;;
+            G) awk "BEGIN {printf \"%d\", $num * 1073741824}" ;;
+            M) awk "BEGIN {printf \"%d\", $num * 1048576}" ;;
+            K) awk "BEGIN {printf \"%d\", $num * 1024}" ;;
+        esac
+    else
+        echo ""
+    fi
+}
 
 separator() {
     echo -e "${CYAN}────────────────────────────────────────────────────────${RESET}"
@@ -290,6 +332,50 @@ csv_mode() {
     fi
 }
 
+json_mode() {
+    local first=1
+    echo '{"entries": ['
+
+    json_scan_dir() {
+        local type="$1"
+        local location="$2"
+        local base_dir="$3"
+
+        [[ -d "$base_dir" ]] || return
+
+        for entry in "$base_dir"/*/; do
+            [[ -d "$entry" ]] || continue
+            local appid
+            appid=$(basename "$entry")
+            local name
+            name=$(get_app_name "$appid")
+            local size_bytes
+            size_bytes=$(du -sb "$entry" 2>/dev/null | cut -f1)
+            # Escape backslashes then quotes in name
+            name="${name//\\/\\\\}"
+            name="${name//\"/\\\"}"
+            if [[ $first -eq 0 ]]; then echo ","; fi
+            printf '  {"type": "%s", "location": "%s", "appid": "%s", "name": "%s", "size_bytes": %s}' \
+                "$type" "$location" "$appid" "$name" "$size_bytes"
+            first=0
+        done
+    }
+
+    json_scan_dir "shadercache" "internal" "$INTERNAL_SHADER"
+    json_scan_dir "compatdata"  "internal" "$INTERNAL_COMPAT"
+
+    if [[ $SKIP_SD -eq 0 ]]; then
+        for sd_path in "$SD_BASE"/*/steamapps; do
+            [[ -d "$sd_path" ]] || continue
+            json_scan_dir "shadercache" "sd_card" "$sd_path/shadercache"
+            json_scan_dir "compatdata"  "sd_card" "$sd_path/compatdata"
+        done
+    fi
+
+    echo ""
+    echo "]}"
+}
+
 game_mode() {
     section "GAME LOOKUP: $GAME_FILTER"
     echo ""
@@ -358,6 +444,11 @@ echo -e "${BOLD}${CYAN}╚══════════════════
 
 if [[ $CSV_MODE -eq 1 ]]; then
     csv_mode
+    exit 0
+fi
+
+if [[ $JSON_MODE -eq 1 ]]; then
+    json_mode
     exit 0
 fi
 
@@ -430,6 +521,22 @@ for dir in "${summary_dirs[@]}"; do
     size=$(du -sh "$dir" 2>/dev/null | cut -f1)
     printf "  ${YELLOW}%-8s${RESET}  %s\n" "$size" "$dir"
 done
+
+if [[ -n "$WARN_AT" ]]; then
+    warn_bytes=$(parse_size "$WARN_AT")
+    all_dirs=("$INTERNAL_SHADER" "$INTERNAL_COMPAT")
+    if [[ $SKIP_SD -eq 0 ]]; then
+        for d in "$SD_BASE"/*/steamapps/shadercache "$SD_BASE"/*/steamapps/compatdata; do
+            [[ -d "$d" ]] && all_dirs+=("$d")
+        done
+    fi
+    total_bytes=$(du -sbc "${all_dirs[@]}" 2>/dev/null | tail -1 | awk '{print $1}')
+    if [[ -n "$total_bytes" && -n "$warn_bytes" && "$total_bytes" -gt "$warn_bytes" ]]; then
+        total_hr=$(numfmt --to=iec-i --suffix=B "$total_bytes" 2>/dev/null || echo "N/A")
+        echo ""
+        echo -e "  ${RED}${BOLD}WARNING:${RESET}${RED} Total cache usage ($total_hr) exceeds --warn-at threshold ($WARN_AT)${RESET}"
+    fi
+fi
 
 echo ""
 separator
