@@ -15,17 +15,23 @@ SD_BASE="/run/media"
 
 TOP_N=10  # How many top entries to show per section
 SKIP_SD=0
+CLEAN_MODE=0
+GAME_FILTER=""
+CSV_MODE=0
 
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --help|-h)
             echo "Usage: $(basename "$0") [OPTIONS]"
             echo ""
             echo "Shows shader cache and compatdata usage on Steam Deck."
             echo ""
             echo "Options:"
-            echo "  --nosd     Skip SD card storage scan"
-            echo "  --help     Show this help message"
+            echo "  --clean        Scan for orphaned cache entries and offer to delete them"
+            echo "  --csv          Export report as CSV (type,location,appid,name,size_bytes)"
+            echo "  --game <name>  Show cache usage for a specific game (partial name match)"
+            echo "  --nosd         Skip SD card storage scan"
+            echo "  --help         Show this help message"
             echo ""
             echo "Source: https://github.com/jaydarkseed757/deck-tools"
             exit 0
@@ -33,12 +39,28 @@ for arg in "$@"; do
         --nosd)
             SKIP_SD=1
             ;;
+        --clean)
+            CLEAN_MODE=1
+            ;;
+        --csv)
+            CSV_MODE=1
+            ;;
+        --game)
+            if [[ -z "$2" || "$2" == --* ]]; then
+                echo "Error: --game requires a name argument" >&2
+                echo "Run '$(basename "$0") --help' for usage." >&2
+                exit 1
+            fi
+            GAME_FILTER="$2"
+            shift
+            ;;
         *)
-            echo "Unknown option: $arg" >&2
+            echo "Unknown option: $1" >&2
             echo "Run '$(basename "$0") --help' for usage." >&2
             exit 1
             ;;
     esac
+    shift
 done
 
 separator() {
@@ -118,10 +140,236 @@ print_dir_breakdown() {
     done < <(du -sh "$base_dir"/* 2>/dev/null | sort -rh)
 }
 
+clean_mode() {
+    section "ORPHAN SCAN"
+    echo ""
+
+    # Collect installed appids from all manifest files
+    declare -A installed
+    for manifest in "$HOME/.local/share/Steam/steamapps"/appmanifest_*.acf; do
+        [[ -f "$manifest" ]] || continue
+        appid=$(basename "$manifest" .acf)
+        installed["${appid#appmanifest_}"]=1
+    done
+    if [[ $SKIP_SD -eq 0 ]]; then
+        for manifest in "$SD_BASE"/*/steamapps/appmanifest_*.acf; do
+            [[ -f "$manifest" ]] || continue
+            appid=$(basename "$manifest" .acf)
+            installed["${appid#appmanifest_}"]=1
+        done
+    fi
+
+    # Build list of dirs to scan
+    scan_dirs=("$INTERNAL_SHADER" "$INTERNAL_COMPAT")
+    if [[ $SKIP_SD -eq 0 ]]; then
+        for d in "$SD_BASE"/*/steamapps/shadercache "$SD_BASE"/*/steamapps/compatdata; do
+            [[ -d "$d" ]] && scan_dirs+=("$d")
+        done
+    fi
+
+    # Find orphaned entries (cache dirs with no matching appmanifest)
+    orphans=()
+    for dir in "${scan_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for entry in "$dir"/*/; do
+            [[ -d "$entry" ]] || continue
+            appid=$(basename "$entry")
+            if [[ -z "${installed[$appid]+x}" ]]; then
+                orphans+=("$entry")
+            fi
+        done
+    done
+
+    if [[ ${#orphans[@]} -eq 0 ]]; then
+        echo -e "  ${GREEN}No orphaned entries found.${RESET}"
+        echo ""
+        separator
+        echo ""
+        return
+    fi
+
+    echo -e "  ${BOLD}Found ${#orphans[@]} orphaned entries:${RESET}"
+    echo ""
+
+    total_bytes=0
+    declare -a orphan_sizes
+    for i in "${!orphans[@]}"; do
+        entry="${orphans[$i]}"
+        appid=$(basename "$entry")
+        name=$(get_app_name "$appid")
+        size_bytes=$(du -sb "$entry" 2>/dev/null | cut -f1)
+        size_hr=$(du -sh "$entry" 2>/dev/null | cut -f1)
+        orphan_sizes[$i]="$size_hr"
+        total_bytes=$((total_bytes + size_bytes))
+        printf "  ${YELLOW}[%d]${RESET} ${YELLOW}%-8s${RESET}  %s\n" "$((i+1))" "$size_hr" "$name"
+        echo -e "       ${CYAN}$entry${RESET}"
+        echo ""
+    done
+
+    total_hr=$(numfmt --to=iec-i --suffix=B "$total_bytes" 2>/dev/null || echo "N/A")
+    echo -e "  ${GREEN}Total recoverable: ${BOLD}$total_hr${RESET}"
+    echo ""
+    separator
+    echo ""
+
+    echo -e "  ${BOLD}What would you like to do?${RESET}"
+    echo -e "  ${YELLOW}[a]${RESET} Delete all"
+    echo -e "  ${YELLOW}[p]${RESET} Pick one by one"
+    echo -e "  ${YELLOW}[q]${RESET} Quit without deleting"
+    echo ""
+    read -rp "  Choice: " choice
+
+    case "$choice" in
+        a|A)
+            echo ""
+            for entry in "${orphans[@]}"; do
+                rm -rf "$entry"
+                echo -e "  ${RED}Deleted:${RESET} $entry"
+            done
+            echo -e "\n  ${GREEN}Done.${RESET}"
+            ;;
+        p|P)
+            echo ""
+            for i in "${!orphans[@]}"; do
+                entry="${orphans[$i]}"
+                appid=$(basename "$entry")
+                name=$(get_app_name "$appid")
+                printf "  Delete ${YELLOW}%s${RESET} (%s)? [y/N/q] " "$name" "${orphan_sizes[$i]}"
+                read -rp "" resp
+                case "$resp" in
+                    y|Y) rm -rf "$entry"; echo -e "  ${RED}Deleted.${RESET}" ;;
+                    q|Q) echo -e "  ${YELLOW}Stopped.${RESET}"; break ;;
+                    *)   echo -e "  Skipped." ;;
+                esac
+            done
+            echo -e "\n  ${GREEN}Done.${RESET}"
+            ;;
+        *)
+            echo -e "\n  ${YELLOW}No changes made.${RESET}"
+            ;;
+    esac
+
+    echo ""
+    separator
+    echo ""
+}
+
+csv_mode() {
+    echo "type,location,appid,name,size_bytes"
+
+    csv_scan_dir() {
+        local type="$1"   # shadercache or compatdata
+        local location="$2"  # internal or sd_card
+        local base_dir="$3"
+
+        [[ -d "$base_dir" ]] || return
+
+        for entry in "$base_dir"/*/; do
+            [[ -d "$entry" ]] || continue
+            local appid
+            appid=$(basename "$entry")
+            local name
+            name=$(get_app_name "$appid")
+            local size_bytes
+            size_bytes=$(du -sb "$entry" 2>/dev/null | cut -f1)
+            # Escape any commas or quotes in name
+            name="${name//\"/\"\"}"
+            echo "\"$type\",\"$location\",\"$appid\",\"$name\",\"$size_bytes\""
+        done
+    }
+
+    csv_scan_dir "shadercache" "internal" "$INTERNAL_SHADER"
+    csv_scan_dir "compatdata"  "internal" "$INTERNAL_COMPAT"
+
+    if [[ $SKIP_SD -eq 0 ]]; then
+        for sd_path in "$SD_BASE"/*/steamapps; do
+            [[ -d "$sd_path" ]] || continue
+            csv_scan_dir "shadercache" "sd_card" "$sd_path/shadercache"
+            csv_scan_dir "compatdata"  "sd_card" "$sd_path/compatdata"
+        done
+    fi
+}
+
+game_mode() {
+    section "GAME LOOKUP: $GAME_FILTER"
+    echo ""
+
+    # Search a steamapps dir for manifests matching the game name
+    declare -A matches  # appid -> name
+    search_dir() {
+        local dir="$1"
+        for manifest in "$dir"/appmanifest_*.acf; do
+            [[ -f "$manifest" ]] || continue
+            name=$(grep -i '"name"' "$manifest" | head -1 | awk -F'"' '{print $4}')
+            if echo "$name" | grep -qi "$GAME_FILTER"; then
+                local appid
+                appid=$(basename "$manifest" .acf)
+                matches["${appid#appmanifest_}"]="$name"
+            fi
+        done
+    }
+
+    search_dir "$HOME/.local/share/Steam/steamapps"
+    if [[ $SKIP_SD -eq 0 ]]; then
+        for sd in "$SD_BASE"/*/steamapps; do
+            [[ -d "$sd" ]] && search_dir "$sd"
+        done
+    fi
+
+    if [[ ${#matches[@]} -eq 0 ]]; then
+        echo -e "  ${RED}No installed games found matching: $GAME_FILTER${RESET}"
+        echo ""
+        separator
+        echo ""
+        return
+    fi
+
+    for appid in "${!matches[@]}"; do
+        name="${matches[$appid]}"
+        echo -e "  ${BOLD}$name${RESET}  ${CYAN}(App ID: $appid)${RESET}"
+        echo ""
+
+        found_any=0
+        for dir in \
+            "$INTERNAL_SHADER/$appid" \
+            "$INTERNAL_COMPAT/$appid" \
+            "$SD_BASE"/*/steamapps/shadercache/"$appid" \
+            "$SD_BASE"/*/steamapps/compatdata/"$appid"; do
+            [[ -d "$dir" ]] || continue
+            found_any=1
+            size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+            printf "  ${YELLOW}%-8s${RESET}  %s\n" "$size" "$dir"
+        done
+
+        if [[ $found_any -eq 0 ]]; then
+            echo -e "  ${YELLOW}No cache entries found for this game.${RESET}"
+        fi
+        echo ""
+    done
+
+    separator
+    echo ""
+}
+
 echo ""
 echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════╗${RESET}"
 echo -e "${BOLD}${CYAN}║       Steam Deck Shader Cache Report         ║${RESET}"
 echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════╝${RESET}"
+
+if [[ $CSV_MODE -eq 1 ]]; then
+    csv_mode
+    exit 0
+fi
+
+if [[ $CLEAN_MODE -eq 1 ]]; then
+    clean_mode
+    exit 0
+fi
+
+if [[ -n "$GAME_FILTER" ]]; then
+    game_mode
+    exit 0
+fi
 
 # ── Internal Storage ──────────────────────────────────────
 section "INTERNAL STORAGE"
