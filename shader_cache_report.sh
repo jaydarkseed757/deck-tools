@@ -26,6 +26,8 @@ for arg in "$@"; do
             echo "Options:"
             echo "  --nosd     Skip SD card storage scan"
             echo "  --help     Show this help message"
+            echo ""
+            echo "Source: https://github.com/jaydarkseed757/deck-tools"
             exit 0
             ;;
         --nosd)
