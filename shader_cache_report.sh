@@ -14,6 +14,30 @@ INTERNAL_COMPAT="$HOME/.local/share/Steam/steamapps/compatdata"
 SD_BASE="/run/media"
 
 TOP_N=10  # How many top entries to show per section
+SKIP_SD=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            echo "Usage: $(basename "$0") [OPTIONS]"
+            echo ""
+            echo "Shows shader cache and compatdata usage on Steam Deck."
+            echo ""
+            echo "Options:"
+            echo "  --nosd     Skip SD card storage scan"
+            echo "  --help     Show this help message"
+            exit 0
+            ;;
+        --nosd)
+            SKIP_SD=1
+            ;;
+        *)
+            echo "Unknown option: $arg" >&2
+            echo "Run '$(basename "$0") --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
 
 separator() {
     echo -e "${CYAN}────────────────────────────────────────────────────────${RESET}"
@@ -115,6 +139,7 @@ if [[ -d "$INTERNAL_SHADER" || -d "$INTERNAL_COMPAT" ]]; then
 fi
 
 # ── SD Card Storage ───────────────────────────────────────
+if [[ $SKIP_SD -eq 0 ]]; then
 section "SD CARD STORAGE"
 
 sd_found=0
@@ -138,12 +163,19 @@ done
 if [[ $sd_found -eq 0 ]]; then
     echo -e "  ${YELLOW}No SD card detected at $SD_BASE${RESET}"
 fi
+fi  # end SKIP_SD check
 
 # ── Summary ───────────────────────────────────────────────
 section "SUMMARY"
 
 echo ""
-for dir in "$INTERNAL_SHADER" "$INTERNAL_COMPAT" "$SD_BASE"/*/steamapps/shadercache "$SD_BASE"/*/steamapps/compatdata; do
+summary_dirs=("$INTERNAL_SHADER" "$INTERNAL_COMPAT")
+if [[ $SKIP_SD -eq 0 ]]; then
+    for d in "$SD_BASE"/*/steamapps/shadercache "$SD_BASE"/*/steamapps/compatdata; do
+        summary_dirs+=("$d")
+    done
+fi
+for dir in "${summary_dirs[@]}"; do
     [[ -d "$dir" ]] || continue
     size=$(du -sh "$dir" 2>/dev/null | cut -f1)
     printf "  ${YELLOW}%-8s${RESET}  %s\n" "$size" "$dir"
