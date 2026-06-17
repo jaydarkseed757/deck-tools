@@ -41,7 +41,36 @@ Run `bash setup.sh --help` for options (`--skip-flatpak`, `--dry-run`).
 └── UTILS/
 ```
 
-### Launchers
+### Deploy a game — `dos-game-deploy.sh`
+
+```bash
+bash dos-game-deploy.sh <game-name> [source-directory]
+```
+
+Point it at any unzipped DOS game folder and it handles everything:
+- Copies the game to `~/DOSGames/GAMES/<GAME>/`
+- Detects the main `.EXE` (by name match, known-game table, or first EXE found)
+- Generates a per-game DOSBox config (`cycles = max`, SB16, `svga_s3`)
+- Writes a launcher script to `~/.local/bin/launch_<game>.sh`
+- Creates a `.desktop` shortcut
+- Prints numbered, step-by-step instructions for adding it to Gaming Mode
+
+```bash
+# Game folder is in the current directory
+bash dos-game-deploy.sh quake
+
+# Explicit source path
+bash dos-game-deploy.sh doom ~/Downloads/doom
+bash dos-game-deploy.sh wolf3d /run/media/mysdcard/wolf3d
+```
+
+Known games with automatic EXE detection: DOOM, DOOM2, Duke3D, Wolf3D, Quake,
+Heretic, Hexen, Descent, Descent2, Tyrian, X-COM, Warcraft, Warcraft 2, and more.
+
+After running the script, follow the printed steps — they walk you through
+Desktop Mode → Add Non-Steam Game → Steam Input → Gaming Mode launch.
+
+### Launchers (general)
 
 | Script | Description |
 |--------|-------------|
