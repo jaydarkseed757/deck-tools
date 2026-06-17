@@ -1,5 +1,85 @@
 # deck-tools
-my simple steam deck tools to do some task that annoy me
+Steam Deck utilities — shader cache management and a DOS retro-computing workstation.
+
+---
+
+## DOS Workstation (`dos-workstation/`)
+
+Turns your Steam Deck into a portable DOS development machine with DOSBox Staging,
+RetroArch/DOSBox Pure, QBASIC 1.1, and GW-BASIC.
+
+### Quick start
+
+```bash
+cd dos-workstation
+bash setup.sh
+```
+
+That single command:
+- Creates `~/DOSGames/` with the full workspace tree
+- Installs **DOSBox Staging** and **RetroArch** via Flatpak (user install, no `sudo`)
+- Deploys optimised DOSBox configs for the Steam Deck display
+- Installs launcher scripts to `~/.local/bin/`
+- Creates `.desktop` shortcuts for Desktop Mode
+
+Run `bash setup.sh --help` for options (`--skip-flatpak`, `--dry-run`).
+
+### Workspace layout
+
+```
+~/DOSGames/
+├── GAMES/
+│   ├── DOOM/
+│   ├── DUKE3D/
+│   └── WOLF3D/
+├── QBASIC/        ← place QBASIC.EXE + QBASIC.HLP here
+├── GWBASIC/       ← place GWBASIC.EXE here
+├── PROJECTS/
+│   ├── BLACKJACK/
+│   ├── HANGMAN/
+│   └── DEMOS/
+└── UTILS/
+```
+
+### Launchers
+
+| Script | Description |
+|--------|-------------|
+| `launch_dos.sh` | DOSBox Staging with the full DOS workspace |
+| `launch_qbasic.sh [file.bas]` | Boots straight into QBASIC IDE; optionally opens a `.BAS` file |
+
+Add either script as a **non-Steam game** in Steam Desktop Mode (`Games → Add a Non-Steam
+Game`) so they appear in Gaming Mode. Then apply the recommended Steam Input layout below.
+
+### Steam Deck controls (recommended Steam Input layout)
+
+| Control | DOS Action |
+|---------|-----------|
+| Left Trackpad | Mouse pointer |
+| Right Stick | Mouse pointer |
+| Left Trigger | Left mouse click |
+| Right Trigger | Right mouse click |
+| A | Enter |
+| B | Escape |
+| Steam + X | On-screen keyboard |
+
+### DOSBox configs
+
+| File | Used for |
+|------|---------|
+| `configs/dosbox-staging.conf` | General DOS workspace — `cycles = auto`, fullscreen |
+| `configs/dosbox-qbasic.conf` | QBASIC IDE — `cycles = fixed 25000`, auto-launches QBASIC |
+
+Both configs are deployed to
+`~/.var/app/io.github.dosbox-staging/config/dosbox/` by `setup.sh`.
+Key settings: `machine = svga_s3` (best VGA/SCREEN 13 support), `aspect = true`
+(4:3 letterboxed on the 16:10 Steam Deck screen), `glshader = sharp`.
+
+### Required files (not bundled)
+
+QBASIC and GW-BASIC are not included; obtain them legally from:
+- MS-DOS 5 or 6 installation disks / images
+- The [FreeDOS](https://www.freedos.org) project (compatible replacements)
 
 ---
 
