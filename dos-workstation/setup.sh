@@ -211,6 +211,32 @@ for launcher in launch_dos.sh launch_qbasic.sh; do
     fi
 done
 
+for tool in dos-game-list.sh dos-game-remove.sh; do
+    src="${SCRIPT_DIR}/${tool}"
+    dst="${BIN_DIR}/${tool}"
+    if [[ -f "$src" ]]; then
+        step "install $dst"
+        if ! $DRY_RUN; then
+            cp "$src" "$dst"
+            chmod +x "$dst"
+        fi
+        success "Installed: $dst"
+    else
+        warn "Tool not found: $src"
+    fi
+done
+
+# Install Python helper alongside the shell tools
+PY_SRC="${SCRIPT_DIR}/steam_shortcuts.py"
+PY_DST="${BIN_DIR}/steam_shortcuts.py"
+if [[ -f "$PY_SRC" ]]; then
+    step "install $PY_DST"
+    if ! $DRY_RUN; then cp "$PY_SRC" "$PY_DST"; fi
+    success "Installed: $PY_DST"
+else
+    warn "steam_shortcuts.py not found: $PY_SRC"
+fi
+
 # ─── Desktop shortcuts ────────────────────────────────────────────────────────
 header "Creating Desktop Shortcuts"
 
