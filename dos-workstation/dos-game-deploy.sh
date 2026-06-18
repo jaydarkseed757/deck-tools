@@ -51,17 +51,19 @@ usage() {
     echo "  source-directory  Path to the unzipped game folder (default: ./<game-name>)"
     echo "  --url             archive.org item URL — downloads and extracts automatically"
     echo "  --browse          Pick from the curated shareware game list interactively"
+    echo "  --steam           Auto-add the game to Steam after deploying"
     echo ""
     echo "Examples:"
     echo "  $0 quake"
     echo "  $0 doom  ~/Downloads/doom"
     echo "  $0 --url https://archive.org/details/msdos_Quake106_shareware"
     echo "  $0 --url https://archive.org/details/msdos_Quake106_shareware quake"
-    echo "  $0 --browse"
+    echo "  $0 --browse --steam"
 }
 
 IA_URL=""
 BROWSE=false
+ADD_TO_STEAM=false
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -70,6 +72,8 @@ while [[ $# -gt 0 ]]; do
             IA_URL="$2"; shift 2 ;;
         --browse)
             BROWSE=true; shift ;;
+        --steam)
+            ADD_TO_STEAM=true; shift ;;
         --help|-h)
             usage; exit 0 ;;
         --)
@@ -558,6 +562,22 @@ EOF
 
 chmod +x "$LAUNCHER"
 success "Launcher written: ${LAUNCHER}"
+
+# ─── Add to Steam (optional) ──────────────────────────────────────────────────
+if $ADD_TO_STEAM; then
+    header "Adding to Steam"
+    SHORTCUTS_PY="${SCRIPT_DIR}/steam_shortcuts.py"
+    if [[ ! -f "$SHORTCUTS_PY" ]]; then
+        warn "steam_shortcuts.py not found at ${SHORTCUTS_PY} — skipping Steam auto-add."
+    elif python3 "$SHORTCUTS_PY" add \
+            --name "${GAME_TITLE}" \
+            --exe "${LAUNCHER}" \
+            --startdir "${HOME}"; then
+        success "Added to Steam — restart Steam to see ${GAME_TITLE} in Gaming Mode"
+    else
+        warn "Could not add to Steam automatically. Use the manual steps below."
+    fi
+fi
 
 # ─── Create .desktop shortcut ─────────────────────────────────────────────────
 header "Creating Desktop Shortcut"
