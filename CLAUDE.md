@@ -44,7 +44,6 @@ bash -n dos-workstation/setup.sh
 
 - **Verify archive.org item IDs in `repos.txt`** — only Quake (`msdos_Quake106_shareware`) and DOOM (`doom_dos`) have been confirmed. The following need a human to open the URL and confirm a ZIP is available:
   - `doom2demo` (DOOM II Demo)
-  - `duke-nukem-3d-shareware` (Duke Nukem 3D Shareware)
   - `heretic-shareware` (Heretic Shareware)
   - `hexen-demo` (Hexen Demo)
   - `quake-ii-shareware` (Quake II Shareware)
