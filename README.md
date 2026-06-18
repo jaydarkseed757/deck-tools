@@ -1,6 +1,6 @@
 # deck-tools
 
-Steam Deck utilities — a DOS retro-computing workstation and a shader cache manager.
+Deck tools for managing dosbox stuff and also a shader cache tool.
 
 ---
 
