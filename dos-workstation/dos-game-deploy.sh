@@ -3,25 +3,24 @@
 #
 # Usage:
 #   bash dos-game-deploy.sh <game-name> [source-directory]
+#   bash dos-game-deploy.sh --url <archive.org-url> [game-name]
 #
 # Examples:
 #   bash dos-game-deploy.sh quake
 #   bash dos-game-deploy.sh doom  ~/Downloads/doom
 #   bash dos-game-deploy.sh wolf3d /mnt/sdcard/wolf3d
-#
-# Assumptions:
-#   • Source folder contains the game files, including a .EXE launcher.
-#   • The EXE name ideally matches the game name (e.g. quake → quake.exe).
-#   • setup.sh has already been run (DOSBox Staging installed, configs deployed).
+#   bash dos-game-deploy.sh --url https://archive.org/details/msdos_Quake106_shareware
+#   bash dos-game-deploy.sh --url https://archive.org/details/msdos_Quake106_shareware quake
 #
 # What this script does:
-#   1. Locates and validates the source game folder.
-#   2. Detects the main executable.
-#   3. Copies the game to ~/DOSGames/GAMES/<GAME>/.
-#   4. Generates a per-game DOSBox Staging config.
-#   5. Generates a launcher script in ~/.local/bin/.
-#   6. Creates a .desktop shortcut for Desktop Mode.
-#   7. Prints step-by-step instructions for Gaming Mode.
+#   1. (Optional) Downloads and extracts a game from archive.org.
+#   2. Locates and validates the source game folder.
+#   3. Detects the main executable.
+#   4. Copies the game to ~/DOSGames/GAMES/<GAME>/.
+#   5. Generates a per-game DOSBox Staging config.
+#   6. Generates a launcher script in ~/.local/bin/.
+#   7. Creates a .desktop shortcut for Desktop Mode.
+#   8. Prints step-by-step instructions for Gaming Mode.
 
 set -euo pipefail
 
@@ -39,78 +38,222 @@ blank()   { echo ""; }
 
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
-    echo "Usage: $0 <game-name> [source-directory]"
+    echo "Usage:"
+    echo "  $0 <game-name> [source-directory]"
+    echo "  $0 --url <archive.org-url> [game-name]"
     echo ""
     echo "  game-name         Folder/game name (e.g. quake, doom, wolf3d)"
     echo "  source-directory  Path to the unzipped game folder (default: ./<game-name>)"
+    echo "  --url             archive.org item URL — downloads and extracts automatically"
     echo ""
     echo "Examples:"
     echo "  $0 quake"
     echo "  $0 doom  ~/Downloads/doom"
+    echo "  $0 --url https://archive.org/details/msdos_Quake106_shareware"
+    echo "  $0 --url https://archive.org/details/msdos_Quake106_shareware quake"
 }
 
-if [[ $# -lt 1 ]]; then
-    error "A game name is required."
-    blank
-    usage
-    exit 1
-fi
-
-if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    usage
-    exit 0
-fi
-
-GAME_RAW="$1"
-GAME_LOWER="${GAME_RAW,,}"           # lowercase  →  quake
-GAME_UPPER="${GAME_RAW^^}"           # uppercase  →  QUAKE
-GAME_TITLE="$(tr '[:lower:]' '[:upper:]' <<< "${GAME_RAW:0:1}")${GAME_RAW:1}"  # Title-case
-
-# ─── Locate source directory ──────────────────────────────────────────────────
-header "Locating Source Folder"
-
-# Search order:
-#   1. Explicit path supplied as $2
-#   2. <current dir>/<game-name>  (user ran script from parent of game folder)
-#   3. <current dir>              (user ran script from inside the game folder)
-#   4. ~/Downloads/<game-name>
-#   5. ~/Desktop/<game-name>
-
-CANDIDATE_PATHS=()
-[[ $# -ge 2 ]] && CANDIDATE_PATHS+=("$2")
-CANDIDATE_PATHS+=(
-    "$(pwd)/${GAME_LOWER}"
-    "$(pwd)/${GAME_UPPER}"
-    "$(pwd)"
-    "${HOME}/Downloads/${GAME_LOWER}"
-    "${HOME}/Downloads/${GAME_UPPER}"
-    "${HOME}/Desktop/${GAME_LOWER}"
-    "${HOME}/Desktop/${GAME_UPPER}"
-)
-
-SRC_DIR=""
-for candidate in "${CANDIDATE_PATHS[@]}"; do
-    # A valid source dir must exist and contain at least one .exe
-    # (case-insensitive). -quit stops find at the first match.
-    [[ -d "$candidate" ]] || continue
-    if find "$candidate" -maxdepth 1 -iname "*.exe" -print -quit 2>/dev/null | grep -q .; then
-        SRC_DIR="$candidate"
-        break
-    fi
+IA_URL=""
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --url)
+            [[ $# -lt 2 ]] && { error "--url requires a URL argument."; exit 1; }
+            IA_URL="$2"; shift 2 ;;
+        --help|-h)
+            usage; exit 0 ;;
+        --)
+            shift; POSITIONAL+=("$@"); break ;;
+        -*)
+            error "Unknown flag: $1"; blank; usage; exit 1 ;;
+        *)
+            POSITIONAL+=("$1"); shift ;;
+    esac
 done
+set -- "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
 
-if [[ -z "$SRC_DIR" ]]; then
-    error "Could not find the game folder for '${GAME_RAW}'."
+if [[ -z "$IA_URL" && $# -lt 1 ]]; then
+    error "A game name or --url is required."
     blank
-    echo "Searched:"
-    for c in "${CANDIDATE_PATHS[@]}"; do echo "  $c"; done
-    blank
-    echo "Make sure the game is unzipped to a folder named '${GAME_LOWER}' then run:"
-    echo "  $0 ${GAME_LOWER} /path/to/${GAME_LOWER}"
+    usage
     exit 1
 fi
 
-success "Found source: ${SRC_DIR}"
+# GAME_RAW may be empty when only --url is given; the fetch section fills it in.
+GAME_RAW="${1:-}"
+
+# ─── Fetch from archive.org ───────────────────────────────────────────────────
+SRC_DIR=""
+
+if [[ -n "$IA_URL" ]]; then
+    header "Fetching from archive.org"
+
+    if ! command -v unzip &>/dev/null; then
+        error "unzip is required for --url downloads."
+        echo "  Install it with:  sudo apt install unzip   # or your distro's equivalent"
+        exit 1
+    fi
+
+    # Create temp directory; cleaned up on exit no matter what
+    IA_TMPDIR="$(mktemp -d)"
+    trap 'rm -rf "$IA_TMPDIR"' EXIT
+
+    # Parse item ID: strip everything up to and including /details/
+    ITEM_ID="${IA_URL##*/details/}"
+    ITEM_ID="${ITEM_ID%%\?*}"    # strip query string
+    ITEM_ID="${ITEM_ID%%/*}"     # strip any trailing path segments
+    info "Item ID: ${ITEM_ID}"
+
+    # Fetch metadata JSON to a file.
+    # Writing to a file (instead of capturing in a variable) lets Python read it
+    # safely without bash expanding $ characters inside the JSON.
+    METADATA_FILE="${IA_TMPDIR}/metadata.json"
+    METADATA_URL="https://archive.org/metadata/${ITEM_ID}"
+    info "Fetching metadata …"
+    curl -sSfL "$METADATA_URL" -o "$METADATA_FILE" || {
+        error "Failed to fetch metadata from ${METADATA_URL}"
+        echo "  Check the URL and your internet connection."
+        exit 1
+    }
+
+    if [[ ! -s "$METADATA_FILE" ]]; then
+        error "No metadata returned for '${ITEM_ID}'. Check the URL."
+        exit 1
+    fi
+
+    # Find the best downloadable ZIP.
+    # Quoted heredoc (<<'PYEOF') prevents bash from expanding $ inside Python source.
+    # METADATA_FILE is passed as sys.argv[1] so it's not embedded in the script text.
+    DL_FILE="$(python3 - "$METADATA_FILE" << 'PYEOF'
+import json, sys
+with open(sys.argv[1]) as fh:
+    data = json.load(fh)
+files = data.get('files', [])
+# Priority 1: format field is exactly "ZIP"
+for f in files:
+    if f.get('format', '').upper() == 'ZIP':
+        print(f['name']); sys.exit(0)
+# Priority 2: filename ends in .zip
+for f in files:
+    if f.get('name', '').lower().endswith('.zip'):
+        print(f['name']); sys.exit(0)
+sys.exit(1)
+PYEOF
+    )" || {
+        error "No ZIP file found in archive.org item '${ITEM_ID}'."
+        echo "Available files:"
+        python3 - "$METADATA_FILE" << 'PYEOF'
+import json, sys
+with open(sys.argv[1]) as fh:
+    data = json.load(fh)
+for f in data.get('files', []):
+    print(f"  {f['name']}  ({f.get('format', '?')})")
+PYEOF
+        exit 1
+    }
+    info "Archive file: ${DL_FILE}"
+
+    # Derive GAME_RAW from item ID if user didn't supply a name.
+    # ITEM_ID is safe to pass as sys.argv since it comes from a URL path segment.
+    if [[ -z "$GAME_RAW" ]]; then
+        GAME_RAW="$(python3 - "$ITEM_ID" << 'PYEOF'
+import re, sys
+s = sys.argv[1]
+s = re.sub(r'^(msdos|dos|pc)[_-]', '', s, flags=re.I)
+s = re.sub(r'[_-](shareware|demo|full|episode\d*|ep\d*|v?\d[\d._]*).*$', '', s, flags=re.I)
+s = re.sub(r'\d+$', '', s)
+s = re.split(r'[_\s]', s)[0]
+print(s.lower() or 'game')
+PYEOF
+        )"
+        info "Derived game name: ${GAME_RAW}"
+    fi
+
+    # Download the ZIP
+    DL_URL="https://archive.org/download/${ITEM_ID}/${DL_FILE}"
+    info "Downloading ${DL_FILE} …"
+    curl -L --progress-bar -o "${IA_TMPDIR}/${DL_FILE}" "$DL_URL" || {
+        error "Download failed: ${DL_URL}"
+        exit 1
+    }
+    success "Downloaded: ${DL_FILE}"
+
+    # Extract ZIP
+    info "Extracting …"
+    mkdir -p "${IA_TMPDIR}/extracted"
+    unzip -q "${IA_TMPDIR}/${DL_FILE}" -d "${IA_TMPDIR}/extracted" || {
+        error "Extraction failed for ${DL_FILE}"
+        exit 1
+    }
+
+    # Find the shallowest directory that contains at least one .exe.
+    # Sorting alphabetically puts shallower paths (shorter strings) first.
+    SRC_DIR="$(find "${IA_TMPDIR}/extracted" -maxdepth 4 -iname "*.exe" \
+                   -printf "%h\n" 2>/dev/null | sort | head -1)"
+
+    if [[ -z "$SRC_DIR" ]]; then
+        error "No .EXE files found after extracting ${DL_FILE}."
+        echo "The archive may not contain a DOS game, or the EXE is nested more than 4 levels deep."
+        exit 1
+    fi
+
+    success "Game files located at: ${SRC_DIR}"
+fi
+
+# ─── Derive name variables (always, after GAME_RAW is finalised) ──────────────
+GAME_LOWER="${GAME_RAW,,}"
+GAME_UPPER="${GAME_RAW^^}"
+GAME_TITLE="$(tr '[:lower:]' '[:upper:]' <<< "${GAME_RAW:0:1}")${GAME_RAW:1}"
+
+# ─── Locate source directory (skipped when --url already set SRC_DIR) ─────────
+if [[ -z "$SRC_DIR" ]]; then
+    header "Locating Source Folder"
+
+    # Search order:
+    #   1. Explicit path supplied as $2
+    #   2. <current dir>/<game-name>  (user ran script from parent of game folder)
+    #   3. <current dir>              (user ran script from inside the game folder)
+    #   4. ~/Downloads/<game-name>
+    #   5. ~/Desktop/<game-name>
+
+    CANDIDATE_PATHS=()
+    [[ $# -ge 2 ]] && CANDIDATE_PATHS+=("$2")
+    CANDIDATE_PATHS+=(
+        "$(pwd)/${GAME_LOWER}"
+        "$(pwd)/${GAME_UPPER}"
+        "$(pwd)"
+        "${HOME}/Downloads/${GAME_LOWER}"
+        "${HOME}/Downloads/${GAME_UPPER}"
+        "${HOME}/Desktop/${GAME_LOWER}"
+        "${HOME}/Desktop/${GAME_UPPER}"
+    )
+
+    for candidate in "${CANDIDATE_PATHS[@]}"; do
+        # A valid source dir must exist and contain at least one .exe
+        # (case-insensitive). -quit stops find at the first match.
+        [[ -d "$candidate" ]] || continue
+        if find "$candidate" -maxdepth 1 -iname "*.exe" -print -quit 2>/dev/null | grep -q .; then
+            SRC_DIR="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$SRC_DIR" ]]; then
+        error "Could not find the game folder for '${GAME_RAW}'."
+        blank
+        echo "Searched:"
+        for c in "${CANDIDATE_PATHS[@]}"; do echo "  $c"; done
+        blank
+        echo "Make sure the game is unzipped to a folder named '${GAME_LOWER}' then run:"
+        echo "  $0 ${GAME_LOWER} /path/to/${GAME_LOWER}"
+        echo ""
+        echo "Or fetch directly from archive.org:"
+        echo "  $0 --url https://archive.org/details/<item-id>"
+        exit 1
+    fi
+
+    success "Found source: ${SRC_DIR}"
+fi
 
 # ─── Detect main executable ───────────────────────────────────────────────────
 header "Detecting Main Executable"
