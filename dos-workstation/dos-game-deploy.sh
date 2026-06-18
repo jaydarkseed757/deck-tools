@@ -90,10 +90,10 @@ CANDIDATE_PATHS+=(
 
 SRC_DIR=""
 for candidate in "${CANDIDATE_PATHS[@]}"; do
-    # A valid source dir must contain at least one .exe (case-insensitive)
-    if [[ -d "$candidate" ]] && \
-       compgen -G "${candidate}"/[Ee][Xx][Ee] > /dev/null 2>&1 || \
-       find "$candidate" -maxdepth 1 -iname "*.exe" -print -quit 2>/dev/null | grep -q .; then
+    # A valid source dir must exist and contain at least one .exe
+    # (case-insensitive). -quit stops find at the first match.
+    [[ -d "$candidate" ]] || continue
+    if find "$candidate" -maxdepth 1 -iname "*.exe" -print -quit 2>/dev/null | grep -q .; then
         SRC_DIR="$candidate"
         break
     fi
@@ -150,9 +150,9 @@ EXE_NAME=""
 # 1. Check known overrides
 if [[ -v KNOWN_EXES[$GAME_LOWER] ]]; then
     OVERRIDE="${KNOWN_EXES[$GAME_LOWER]}"
-    if find "$SRC_DIR" -maxdepth 1 -iname "$OVERRIDE" -print -quit | grep -q .; then
-        EXE_NAME="$(find "$SRC_DIR" -maxdepth 1 -iname "$OVERRIDE" -print -quit)"
-        EXE_NAME="$(basename "$EXE_NAME")"
+    MATCH="$(find "$SRC_DIR" -maxdepth 1 -iname "$OVERRIDE" -print -quit 2>/dev/null || true)"
+    if [[ -n "$MATCH" ]]; then
+        EXE_NAME="$(basename "$MATCH")"
         info "Matched known game EXE: ${EXE_NAME}"
     fi
 fi
@@ -212,7 +212,7 @@ mkdir -p "$GAME_DEST"
 if [[ "$(realpath "$SRC_DIR")" == "$(realpath "$GAME_DEST")" ]]; then
     success "Game files already at destination — no copy needed"
 else
-    FILE_COUNT="$(find "$SRC_DIR" -maxdepth 1 -type f | wc -l)"
+    FILE_COUNT="$(find "$SRC_DIR" -type f | wc -l)"
     info "Copying ${FILE_COUNT} files to ${GAME_DEST} …"
     cp -r "${SRC_DIR}/." "${GAME_DEST}/"
     success "Copied to ${GAME_DEST}"

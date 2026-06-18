@@ -10,7 +10,9 @@
 #   launch_qbasic.sh PROJECTS/BLACKJACK/BLACKJACK.BAS
 
 DOSBOX_ID="io.github.dosbox-staging"
-QBASIC_CFG="${HOME}/.var/app/${DOSBOX_ID}/config/dosbox/dosbox-qbasic.conf"
+CFG_DIR="${HOME}/.var/app/${DOSBOX_ID}/config/dosbox"
+QBASIC_CFG="${CFG_DIR}/dosbox-qbasic.conf"
+STAGING_CFG="${CFG_DIR}/dosbox-staging.conf"
 DOS_ROOT="${HOME}/DOSGames"
 BAS_FILE="${1:-}"
 
@@ -28,15 +30,25 @@ if [[ ! -f "$QBASIC_CFG" ]]; then
     exit 1
 fi
 
-# If a .BAS file was passed, open it directly in QBASIC
+# If a .BAS file was passed, open it directly in QBASIC.
+# Use the general staging config (not dosbox-qbasic.conf): its autoexec only
+# mounts C: and returns to the prompt, so DOSBox then runs the -c commands.
+# dosbox-qbasic.conf would auto-launch the QBASIC IDE first and block, and the
+# -c commands would not run until that interactive session was quit.
 if [[ -n "$BAS_FILE" ]]; then
+    if [[ ! -f "$STAGING_CFG" ]]; then
+        echo "Config not found: $STAGING_CFG"
+        echo "Run setup.sh to deploy the configuration."
+        exit 1
+    fi
+
     # Resolve to a DOS path relative to the C: mount
     DOS_PATH="${BAS_FILE#"${DOS_ROOT}/"}"   # strip leading DOS_ROOT if present
     DOS_PATH="${DOS_PATH^^}"                # uppercase (DOS convention)
     DOS_PATH="${DOS_PATH//\//\\}"           # forward → back slashes
 
     exec flatpak run "$DOSBOX_ID" \
-        --conf "$QBASIC_CFG" \
+        --conf "$STAGING_CFG" \
         -c "CD QBASIC" \
         -c "QBASIC.EXE /RUN C:\\${DOS_PATH}"
 fi
