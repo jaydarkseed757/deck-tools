@@ -4,6 +4,7 @@
 # Usage:
 #   bash dos-game-deploy.sh <game-name> [source-directory]
 #   bash dos-game-deploy.sh --url <archive.org-url> [game-name]
+#   bash dos-game-deploy.sh --browse
 #
 # Examples:
 #   bash dos-game-deploy.sh quake
@@ -11,6 +12,7 @@
 #   bash dos-game-deploy.sh wolf3d /mnt/sdcard/wolf3d
 #   bash dos-game-deploy.sh --url https://archive.org/details/msdos_Quake106_shareware
 #   bash dos-game-deploy.sh --url https://archive.org/details/msdos_Quake106_shareware quake
+#   bash dos-game-deploy.sh --browse
 #
 # What this script does:
 #   1. (Optional) Downloads and extracts a game from archive.org.
@@ -23,6 +25,8 @@
 #   8. Prints step-by-step instructions for Gaming Mode.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -41,25 +45,31 @@ usage() {
     echo "Usage:"
     echo "  $0 <game-name> [source-directory]"
     echo "  $0 --url <archive.org-url> [game-name]"
+    echo "  $0 --browse"
     echo ""
     echo "  game-name         Folder/game name (e.g. quake, doom, wolf3d)"
     echo "  source-directory  Path to the unzipped game folder (default: ./<game-name>)"
     echo "  --url             archive.org item URL — downloads and extracts automatically"
+    echo "  --browse          Pick from the curated shareware game list interactively"
     echo ""
     echo "Examples:"
     echo "  $0 quake"
     echo "  $0 doom  ~/Downloads/doom"
     echo "  $0 --url https://archive.org/details/msdos_Quake106_shareware"
     echo "  $0 --url https://archive.org/details/msdos_Quake106_shareware quake"
+    echo "  $0 --browse"
 }
 
 IA_URL=""
+BROWSE=false
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --url)
             [[ $# -lt 2 ]] && { error "--url requires a URL argument."; exit 1; }
             IA_URL="$2"; shift 2 ;;
+        --browse)
+            BROWSE=true; shift ;;
         --help|-h)
             usage; exit 0 ;;
         --)
@@ -72,14 +82,69 @@ while [[ $# -gt 0 ]]; do
 done
 set -- "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
 
-if [[ -z "$IA_URL" && $# -lt 1 ]]; then
-    error "A game name or --url is required."
+if $BROWSE && [[ -n "$IA_URL" ]]; then
+    error "--browse and --url are mutually exclusive."
+    exit 1
+fi
+
+if ! $BROWSE && [[ -z "$IA_URL" && $# -lt 1 ]]; then
+    error "A game name, --url, or --browse is required."
     blank
     usage
     exit 1
 fi
 
-# GAME_RAW may be empty when only --url is given; the fetch section fills it in.
+# ─── Browse curated shareware list ───────────────────────────────────────────
+if $BROWSE; then
+    REPOS_FILE="${SCRIPT_DIR}/repos.txt"
+    if [[ ! -f "$REPOS_FILE" ]]; then
+        error "repos.txt not found at ${REPOS_FILE}"
+        exit 1
+    fi
+
+    GAME_NAMES=(); GAME_URLS=()
+    while IFS='|' read -r name url; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        name="${name# }"; name="${name% }"
+        url="${url# }";   url="${url% }"
+        [[ -z "$name" || -z "$url" ]] && continue
+        GAME_NAMES+=("$name"); GAME_URLS+=("$url")
+    done < "$REPOS_FILE"
+
+    if [[ ${#GAME_NAMES[@]} -eq 0 ]]; then
+        error "repos.txt is empty or has no valid entries."
+        exit 1
+    fi
+
+    if [[ ! -t 0 ]]; then
+        error "--browse requires an interactive terminal."
+        exit 1
+    fi
+
+    header "Available Shareware Games"
+    blank
+    for i in "${!GAME_NAMES[@]}"; do
+        printf "  %2d)  %s\n" "$((i+1))" "${GAME_NAMES[$i]}"
+    done
+    blank
+
+    SELECTION=""
+    while true; do
+        read -rp "Enter number (1-${#GAME_NAMES[@]}) or q to quit: " SELECTION
+        [[ "$SELECTION" == "q" ]] && { info "Cancelled."; exit 0; }
+        if [[ "$SELECTION" =~ ^[0-9]+$ ]] && \
+           (( SELECTION >= 1 && SELECTION <= ${#GAME_NAMES[@]} )); then
+            break
+        fi
+        warn "Invalid selection. Enter a number between 1 and ${#GAME_NAMES[@]}."
+    done
+
+    IDX=$(( SELECTION - 1 ))
+    IA_URL="${GAME_URLS[$IDX]}"
+    info "Selected: ${GAME_NAMES[$IDX]}"
+fi
+
+# GAME_RAW may be empty when only --url/--browse is given; the fetch section fills it in.
 GAME_RAW="${1:-}"
 
 # ─── Fetch from archive.org ───────────────────────────────────────────────────
