@@ -63,7 +63,7 @@ else
     warn "Not running on SteamOS — some steps may not apply to your system"
 fi
 
-if ! command -v flatpak &>/dev/null; then
+if ! $SKIP_FLATPAK && ! command -v flatpak &>/dev/null; then
     error "flatpak is not available. Install it first or use --skip-flatpak."
     exit 1
 fi
