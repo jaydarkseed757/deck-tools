@@ -5,11 +5,11 @@
 # Add entries here to grow the library.
 #
 # TODO: verify the following archive.org item IDs before shipping:
-#   doom2demo, heretic-shareware, hexen-demo, quake-ii-shareware
+#   heretic-shareware, hexen-demo, quake-ii-shareware
 
 Quake (Shareware 1.06)|https://archive.org/details/msdos_Quake106_shareware
 DOOM (Shareware 1.9)|https://archive.org/details/doom_dos
-DOOM II (Demo)|https://archive.org/details/doom2demo
+DOOM II (Demo)|https://archive.org/details/Doom-2
 Duke Nukem 3D (Shareware)|https://archive.org/details/DUKE3D_DOS
 Heretic (Shareware)|https://archive.org/details/heretic-shareware
 Hexen (Demo)|https://archive.org/details/hexen-demo
