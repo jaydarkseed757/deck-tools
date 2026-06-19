@@ -55,4 +55,3 @@ python3 -c "import ast; ast.parse(open('dos-workstation/steam_shortcuts.py').rea
   - `heretic-shareware` (Heretic Shareware)
   - `hexen-demo` (Hexen Demo)
   - `quake-ii-shareware` (Quake II Shareware)
-  - `wolf3d-shareware` (Wolfenstein 3D Shareware)
