@@ -6,7 +6,7 @@
 #
 # TODO: verify the following archive.org item IDs before shipping:
 #   doom2demo, heretic-shareware, hexen-demo,
-#   quake-ii-shareware, keen4e, wolf3d-shareware
+#   quake-ii-shareware, wolf3d-shareware
 
 Quake (Shareware 1.06)|https://archive.org/details/msdos_Quake106_shareware
 DOOM (Shareware 1.9)|https://archive.org/details/doom_dos
@@ -15,5 +15,5 @@ Duke Nukem 3D (Shareware)|https://archive.org/details/DUKE3D_DOS
 Heretic (Shareware)|https://archive.org/details/heretic-shareware
 Hexen (Demo)|https://archive.org/details/hexen-demo
 Quake II (Shareware)|https://archive.org/details/quake-ii-shareware
-Commander Keen 4 (Shareware)|https://archive.org/details/keen4e
+Commander Keen 4 (Shareware)|https://archive.org/details/Keen4e-sw
 Wolfenstein 3D (Shareware)|https://archive.org/details/wolf3d-shareware
