@@ -13,3 +13,4 @@ Heretic (Shareware)|https://archive.org/details/heretic-dos
 Quake II (Shareware)|https://archive.org/details/quake-2_202103
 Commander Keen 4 (Shareware)|https://archive.org/details/Keen4e-sw
 Wolfenstein 3D (Shareware)|https://archive.org/details/wolf3dsw
+Star Wars (1988)|https://archive.org/details/msdos_Star_Wars_1988
