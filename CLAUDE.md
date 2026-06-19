@@ -53,4 +53,3 @@ python3 -c "import ast; ast.parse(open('dos-workstation/steam_shortcuts.py').rea
 - **Verify archive.org item IDs in `repos.txt`** — only Quake (`msdos_Quake106_shareware`), DOOM (`doom_dos`), and Duke3D (`DUKE3D_DOS`) have been confirmed. The following need a human to open the URL and confirm a ZIP is available:
   - `heretic-shareware` (Heretic Shareware)
   - `hexen-demo` (Hexen Demo)
-  - `quake-ii-shareware` (Quake II Shareware)
