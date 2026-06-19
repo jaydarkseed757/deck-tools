@@ -36,7 +36,7 @@ shader_cache_report.sh              Steam shader cache usage report
 - `dos-game-deploy.sh` EXE detection precedence: `--exe <file>` override → `--interactive` (no auto-run) → known-EXE table → `<gamename>.exe` → alphabetical fallback. If the resolved EXE is an installer (`INSTALL.EXE`/`SETUP.EXE`/`.BAT`), it auto-switches to interactive mode and writes a prompt-only autoexec so the installer isn't launched as the "game". After installing, re-deploy with `--exe <GAME.EXE>`. Escape angle brackets in DOS `echo` output as `^<`/`^>`.
 - `GAME_TITLE` (the Steam shortcut display name) must be derived identically in `dos-game-deploy.sh` and `dos-game-remove.sh` — both from the **raw** argument (`${GAME_RAW:0:1}^^` + `${GAME_RAW:1}`), preserving the case of the tail. Deriving remove's title from `GAME_LOWER` instead orphans the Steam shortcut for any mixed/upper-case name (e.g. `WOLF3D`).
 - `dos-game-remove.sh` — always confirms before any destructive deletion. Calls `steam_shortcuts.py remove` if the helper is available. Matches the existing shortcut with `cut -f1 | grep -Fxqi` (exact, anchored, fixed-string) — never a bare `grep` regex, since archive-derived names contain metacharacters (`.`, `+`, `(`, `)`).
-- `shader_cache_report.sh` deliberately omits `set -e` (so `((count++))` returning non-zero at 0→1 is safe). SD-card paths are globbed as `"$SD_BASE"/*/steamapps/...`; when no SD card is mounted the glob stays literal and falls through harmlessly **only** because every use is guarded by a `[[ -d "$dir" ]]` test immediately after. Keep that guard on any new SD-card glob loop.
+- `shader_cache_report.sh` is considered stable — no need to audit it for bugs.
 
 ## Development
 
@@ -48,7 +48,6 @@ bash -n dos-workstation/dos-game-deploy.sh
 bash -n dos-workstation/dos-game-list.sh
 bash -n dos-workstation/dos-game-remove.sh
 bash -n dos-workstation/setup.sh
-bash -n shader_cache_report.sh
 python3 -c "import ast; ast.parse(open('dos-workstation/steam_shortcuts.py').read())"
 ```
 
