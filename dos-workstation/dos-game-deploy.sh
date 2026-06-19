@@ -52,6 +52,8 @@ usage() {
     echo "  --url             archive.org item URL — downloads and extracts automatically"
     echo "  --browse          Pick from the curated shareware game list interactively"
     echo "  --steam           Auto-add the game to Steam after deploying"
+    echo "  --exe <file>      Explicitly set the game EXE (e.g. after running an installer)"
+    echo "  --interactive     Deploy files and drop to a DOS prompt instead of auto-running an EXE"
     echo ""
     echo "Examples:"
     echo "  $0 quake"
@@ -64,6 +66,8 @@ usage() {
 IA_URL=""
 BROWSE=false
 ADD_TO_STEAM=false
+EXE_OVERRIDE=""
+INTERACTIVE=false
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -74,6 +78,11 @@ while [[ $# -gt 0 ]]; do
             BROWSE=true; shift ;;
         --steam)
             ADD_TO_STEAM=true; shift ;;
+        --exe)
+            [[ $# -lt 2 ]] && { error "--exe requires a filename argument."; exit 1; }
+            EXE_OVERRIDE="$2"; shift 2 ;;
+        --interactive)
+            INTERACTIVE=true; shift ;;
         --help|-h)
             usage; exit 0 ;;
         --)
@@ -359,50 +368,74 @@ declare -A KNOWN_EXES=(
 
 EXE_NAME=""
 
-# 1. Check known overrides
-if [[ -v KNOWN_EXES[$GAME_LOWER] ]]; then
-    OVERRIDE="${KNOWN_EXES[$GAME_LOWER]}"
-    MATCH="$(find "$SRC_DIR" -maxdepth 1 -iname "$OVERRIDE" -print -quit 2>/dev/null || true)"
-    if [[ -n "$MATCH" ]]; then
-        EXE_NAME="$(basename "$MATCH")"
-        info "Matched known game EXE: ${EXE_NAME}"
+if [[ -n "$EXE_OVERRIDE" ]]; then
+    EXE_NAME="$EXE_OVERRIDE"
+    info "Using specified EXE: ${EXE_NAME^^}"
+elif $INTERACTIVE; then
+    info "Interactive mode — no EXE auto-run"
+else
+    # 1. Check known overrides
+    if [[ -v KNOWN_EXES[$GAME_LOWER] ]]; then
+        OVERRIDE="${KNOWN_EXES[$GAME_LOWER]}"
+        MATCH="$(find "$SRC_DIR" -maxdepth 1 -iname "$OVERRIDE" -print -quit 2>/dev/null || true)"
+        if [[ -n "$MATCH" ]]; then
+            EXE_NAME="$(basename "$MATCH")"
+            info "Matched known game EXE: ${EXE_NAME}"
+        fi
     fi
-fi
 
-# 2. Try <gamename>.exe (case-insensitive)
-if [[ -z "$EXE_NAME" ]]; then
-    MATCH="$(find "$SRC_DIR" -maxdepth 1 -iname "${GAME_LOWER}.exe" -print -quit 2>/dev/null || true)"
-    if [[ -n "$MATCH" ]]; then
-        EXE_NAME="$(basename "$MATCH")"
-        info "Matched by game name: ${EXE_NAME}"
+    # 2. Try <gamename>.exe (case-insensitive)
+    if [[ -z "$EXE_NAME" ]]; then
+        MATCH="$(find "$SRC_DIR" -maxdepth 1 -iname "${GAME_LOWER}.exe" -print -quit 2>/dev/null || true)"
+        if [[ -n "$MATCH" ]]; then
+            EXE_NAME="$(basename "$MATCH")"
+            info "Matched by game name: ${EXE_NAME}"
+        fi
     fi
-fi
 
-# 3. List all .exe files and pick the most likely one
-if [[ -z "$EXE_NAME" ]]; then
-    mapfile -t ALL_EXES < <(find "$SRC_DIR" -maxdepth 1 -iname "*.exe" -printf "%f\n" 2>/dev/null | sort)
+    # 3. List all .exe files and pick the most likely one
+    if [[ -z "$EXE_NAME" ]]; then
+        mapfile -t ALL_EXES < <(find "$SRC_DIR" -maxdepth 1 -iname "*.exe" -printf "%f\n" 2>/dev/null | sort)
 
-    if [[ ${#ALL_EXES[@]} -eq 0 ]]; then
-        error "No .EXE files found in ${SRC_DIR}"
-        echo "Ensure the game is fully extracted and contains an .exe launcher."
-        exit 1
-    elif [[ ${#ALL_EXES[@]} -eq 1 ]]; then
-        EXE_NAME="${ALL_EXES[0]}"
-        info "Only one EXE found: ${EXE_NAME}"
-    else
-        warn "Multiple .EXE files found — picking the first one."
-        warn "Override with: $0 ${GAME_LOWER} <source> (then edit the generated config)"
-        echo ""
-        echo "  EXEs found in ${SRC_DIR}:"
-        for exe in "${ALL_EXES[@]}"; do echo "    $exe"; done
-        echo ""
-        EXE_NAME="${ALL_EXES[0]}"
-        info "Using: ${EXE_NAME}"
+        if [[ ${#ALL_EXES[@]} -eq 0 ]]; then
+            error "No .EXE files found in ${SRC_DIR}"
+            echo "Ensure the game is fully extracted and contains an .exe launcher."
+            exit 1
+        elif [[ ${#ALL_EXES[@]} -eq 1 ]]; then
+            EXE_NAME="${ALL_EXES[0]}"
+            info "Only one EXE found: ${EXE_NAME}"
+        else
+            warn "Multiple .EXE files found — picking the first one."
+            warn "Override with: $0 ${GAME_LOWER} --exe <EXE.EXE>"
+            echo ""
+            echo "  EXEs found in ${SRC_DIR}:"
+            for exe in "${ALL_EXES[@]}"; do echo "    $exe"; done
+            echo ""
+            EXE_NAME="${ALL_EXES[0]}"
+            info "Using: ${EXE_NAME}"
+        fi
     fi
+
+    # Installer auto-detection
+    INSTALLER_NAMES=("install.exe" "setup.exe" "install.bat" "setup.bat")
+    for ins in "${INSTALLER_NAMES[@]}"; do
+        if [[ "${EXE_NAME,,}" == "$ins" ]]; then
+            warn "Detected installer EXE: ${EXE_NAME^^}"
+            warn "Switching to interactive mode — the DOS prompt will open at C:\\GAMES\\${GAME_UPPER}"
+            warn "Run the installer there, then re-deploy with:  $0 ${GAME_LOWER} --exe <GAME.EXE>"
+            INTERACTIVE=true
+            EXE_NAME=""
+            break
+        fi
+    done
 fi
 
 EXE_UPPER="${EXE_NAME^^}"
-success "Main executable: ${EXE_UPPER}"
+if $INTERACTIVE; then
+    info "Interactive mode — DOS prompt opens at C:\\GAMES\\${GAME_UPPER}"
+else
+    success "Main executable: ${EXE_UPPER}"
+fi
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 DOS_ROOT="${HOME}/DOSGames"
@@ -441,11 +474,22 @@ if [[ -f "$GAME_CFG" ]]; then
     warn "Existing config backed up → $BAK"
 fi
 
+if $INTERACTIVE; then
+    CFG_EXE_NOTE="Interactive mode — DOS prompt (run installer, then re-deploy with --exe)"
+    AUTOEXEC_FOOTER="echo.
+echo  Run the installer, then close DOSBox and re-run:
+echo    dos-game-deploy.sh ${GAME_LOWER} --exe ^<GAME.EXE^>
+echo."
+else
+    CFG_EXE_NOTE="Main executable: ${EXE_UPPER}"
+    AUTOEXEC_FOOTER="${EXE_UPPER}"
+fi
+
 cat > "$GAME_CFG" << EOF
 # dosbox-${GAME_LOWER}.conf — DOSBox Staging config for ${GAME_TITLE}
 #
 # Generated by dos-game-deploy.sh on $(date '+%Y-%m-%d %H:%M:%S')
-# Main executable: ${EXE_UPPER}
+# ${CFG_EXE_NOTE}
 #
 # Tuning tips:
 #   cycles = max          Fastest possible (best for late-DOS 3D games)
@@ -532,7 +576,7 @@ ipx                    = false
 mount C ${HOME}/DOSGames
 C:
 CD GAMES\\${GAME_UPPER}
-${EXE_UPPER}
+${AUTOEXEC_FOOTER}
 EOF
 
 success "Config written: ${GAME_CFG}"
@@ -648,5 +692,24 @@ echo "    cycles = max            # full speed  (3D games: DOOM, Quake)"
 echo "    cycles = fixed 25000    # ~486 DX2-66 (strategy, early games)"
 echo "    cycles = fixed 10000    # ~386 DX-33  (older platformers)"
 blank
-echo -e "${GREEN}${BOLD}${GAME_TITLE} is ready!${NC}  Enjoy your game."
+if $INTERACTIVE; then
+    echo -e "${YELLOW}${BOLD}${GAME_TITLE} — installer mode.${NC}  Follow the steps below."
+else
+    echo -e "${GREEN}${BOLD}${GAME_TITLE} is ready!${NC}  Enjoy your game."
+fi
 blank
+
+if $INTERACTIVE; then
+    echo -e "${BOLD}Installer detected — next steps:${NC}"
+    blank
+    echo "  1. Launch DOSBox now:   ${LAUNCHER}"
+    echo "     (A DOS prompt opens at C:\\GAMES\\${GAME_UPPER})"
+    blank
+    echo "  2. Run the installer inside DOSBox, e.g.:"
+    echo "     INSTALL.EXE   or   SETUP.EXE"
+    blank
+    echo "  3. When done, close DOSBox and run:"
+    echo "     $0 ${GAME_LOWER} --exe <GAME.EXE>"
+    echo "     This updates the launcher to start the game directly."
+    blank
+fi
