@@ -55,7 +55,11 @@ fi
 
 GAME_LOWER="${GAME_RAW,,}"
 GAME_UPPER="${GAME_RAW^^}"
-GAME_TITLE="$(tr '[:lower:]' '[:upper:]' <<< "${GAME_LOWER:0:1}")${GAME_LOWER:1}"
+# Derive the title the same way dos-game-deploy.sh does — from the raw argument,
+# preserving the case of everything after the first character. Deriving from
+# GAME_LOWER instead would force the tail lowercase and fail to match a Steam
+# shortcut that was deployed with a mixed/upper-case name (e.g. WOLF3D).
+GAME_TITLE="$(tr '[:lower:]' '[:upper:]' <<< "${GAME_RAW:0:1}")${GAME_RAW:1}"
 
 DOSBOX_ID="io.github.dosbox-staging"
 GAME_DIR="${HOME}/DOSGames/GAMES/${GAME_UPPER}"
@@ -89,7 +93,10 @@ done
 
 HAS_STEAM_ENTRY=false
 if [[ -f "$SHORTCUTS_PY" ]]; then
-    if python3 "$SHORTCUTS_PY" list 2>/dev/null | grep -qi "^${GAME_TITLE}	"; then
+    # Match the AppName field (tab-delimited, first column) exactly.
+    # -F (fixed string) avoids treating names with regex metacharacters
+    # (. + ( ) etc.) as patterns; -x anchors to the whole field.
+    if python3 "$SHORTCUTS_PY" list 2>/dev/null | cut -f1 | grep -Fxqi -- "${GAME_TITLE}"; then
         HAS_STEAM_ENTRY=true
         echo "  Steam shortcut: ${GAME_TITLE}"
     fi

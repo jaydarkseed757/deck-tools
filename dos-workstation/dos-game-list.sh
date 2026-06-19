@@ -28,7 +28,7 @@ fi
 
 printf "\n${BOLD}${CYAN}%-12s %-16s %-7s %-9s %-9s${NC}\n" \
     "GAME" "EXE" "CONFIG" "LAUNCHER" "SHORTCUT"
-printf '─%.0s' {1..55}; echo
+printf '─%.0s' {1..57}; echo
 
 for game_dir in "${game_dirs[@]}"; do
     [[ -d "$game_dir" ]] || continue
