@@ -69,12 +69,31 @@ def build_file(entry_blobs):
     return b'\x00shortcuts\x00' + b''.join(entry_blobs) + b'\x08\x08'
 
 
+def _reindex(blob, new_idx):
+    """Rewrite a raw entry blob's leading index key to `new_idx`.
+
+    Only the object key (the "0"/"1"/… right after the opening \\x00) is
+    rewritten; the body bytes are preserved verbatim, so the raw-byte
+    preservation guarantee for every other field still holds. Keeping the
+    keys sequential and unique avoids duplicate keys after a remove-then-add
+    (a kept entry retains its original key while a new one uses len()).
+    """
+    end = blob.index(b'\x00', 1)            # end of the existing index key
+    return b'\x00' + str(new_idx).encode() + blob[end:]
+
+
 # ── Raw VDF splitter ──────────────────────────────────────────────────────────
 
 def _skip_cstr(data, pos):
-    """Skip a null-terminated string; return position after the null byte."""
-    while data[pos] != 0:
+    """Skip a null-terminated string; return position after the null byte.
+
+    Bounded by len(data) so a truncated/malformed file raises a clean
+    ValueError (caught in load_entries) instead of an IndexError.
+    """
+    while pos < len(data) and data[pos] != 0:
         pos += 1
+    if pos >= len(data):
+        raise ValueError('unterminated string in shortcuts.vdf')
     return pos + 1
 
 
@@ -137,7 +156,9 @@ def _field_value(blob, field_name):
     if idx == -1:
         return ''
     start = idx + len(marker)
-    end = blob.index(b'\x00', start)
+    end = blob.find(b'\x00', start)
+    if end == -1:                 # truncated value with no terminator
+        return ''
     return blob[start:end].decode('utf-8', errors='replace')
 
 
@@ -184,10 +205,22 @@ def load_entries(path):
         return []
     with open(path, 'rb') as f:
         data = f.read()
-    return split_raw_entries(data) if data else []
+    if not data:
+        return []
+    try:
+        return split_raw_entries(data)
+    except (IndexError, ValueError) as e:
+        print(
+            f'Error: {path} appears to be corrupted or truncated ({e}).\n'
+            'Refusing to touch it to avoid losing existing shortcuts.',
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def save_entries(path, entry_blobs):
+    # Renumber sequentially so keys stay unique after a remove-then-add.
+    entry_blobs = [_reindex(b, i) for i, b in enumerate(entry_blobs)]
     tmp = path + '.tmp'
     with open(tmp, 'wb') as f:
         f.write(build_file(entry_blobs))

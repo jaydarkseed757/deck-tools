@@ -416,18 +416,21 @@ else
         fi
     fi
 
-    # Installer auto-detection
-    INSTALLER_NAMES=("install.exe" "setup.exe" "install.bat" "setup.bat")
-    for ins in "${INSTALLER_NAMES[@]}"; do
-        if [[ "${EXE_NAME,,}" == "$ins" ]]; then
-            warn "Detected installer EXE: ${EXE_NAME^^}"
-            warn "Switching to interactive mode — the DOS prompt will open at C:\\GAMES\\${GAME_UPPER}"
-            warn "Run the installer there, then re-deploy with:  $0 ${GAME_LOWER} --exe <GAME.EXE>"
-            INTERACTIVE=true
-            EXE_NAME=""
-            break
-        fi
-    done
+    # Installer auto-detection — skipped when the user explicitly set --exe,
+    # since an explicit override means they know which EXE they want.
+    if [[ -z "$EXE_OVERRIDE" ]]; then
+        INSTALLER_NAMES=("install.exe" "setup.exe" "install.bat" "setup.bat")
+        for ins in "${INSTALLER_NAMES[@]}"; do
+            if [[ "${EXE_NAME,,}" == "$ins" ]]; then
+                warn "Detected installer EXE: ${EXE_NAME^^}"
+                warn "Switching to interactive mode — the DOS prompt will open at C:\\GAMES\\${GAME_UPPER}"
+                warn "Run the installer there, then re-deploy with:  $0 ${GAME_LOWER} --exe <GAME.EXE>"
+                INTERACTIVE=true
+                EXE_NAME=""
+                break
+            fi
+        done
+    fi
 fi
 
 EXE_UPPER="${EXE_NAME^^}"
@@ -461,6 +464,16 @@ else
     info "Copying ${FILE_COUNT} files to ${GAME_DEST} …"
     cp -r "${SRC_DIR}/." "${GAME_DEST}/"
     success "Copied to ${GAME_DEST}"
+fi
+
+# Sanity-check the chosen EXE actually exists in the deployed dir (non-interactive
+# only). Checks GAME_DEST, not SRC_DIR, so the post-installer re-deploy workflow
+# (--exe naming a file the installer wrote into the destination) still validates.
+# A warning, not a failure — the EXE may legitimately be created on first launch.
+if ! $INTERACTIVE && \
+   ! find "$GAME_DEST" -maxdepth 1 -iname "$EXE_NAME" -print -quit 2>/dev/null | grep -q .; then
+    warn "EXE '${EXE_UPPER}' not found in ${GAME_DEST} — the launcher may fail."
+    warn "If you meant a different executable, re-run with:  $0 ${GAME_LOWER} --exe <GAME.EXE>"
 fi
 
 # ─── Generate DOSBox config ───────────────────────────────────────────────────
