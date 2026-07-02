@@ -141,9 +141,11 @@ install_flatpak() {
 if ! $SKIP_FLATPAK; then
     header "Installing Flatpak Packages"
 
-    # Ensure flathub remote exists
-    if ! flatpak remotes --user 2>/dev/null | grep -q flathub && \
-       ! flatpak remotes        2>/dev/null | grep -q flathub; then
+    # Ensure flathub remote exists. Match the name column exactly — a plain
+    # grep would false-positive on e.g. 'flathub-beta' and then the
+    # 'flatpak install … flathub' below would fail.
+    if ! flatpak remotes --user 2>/dev/null | cut -f1 | grep -Fxq flathub && \
+       ! flatpak remotes        2>/dev/null | cut -f1 | grep -Fxq flathub; then
         info "Adding Flathub remote …"
         run flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -211,7 +213,7 @@ for launcher in launch_dos.sh launch_qbasic.sh; do
     fi
 done
 
-for tool in dos-game-list.sh dos-game-remove.sh; do
+for tool in dos-game-deploy.sh dos-game-list.sh dos-game-remove.sh; do
     src="${SCRIPT_DIR}/${tool}"
     dst="${BIN_DIR}/${tool}"
     if [[ -f "$src" ]]; then
@@ -235,6 +237,18 @@ if [[ -f "$PY_SRC" ]]; then
     success "Installed: $PY_DST"
 else
     warn "steam_shortcuts.py not found: $PY_SRC"
+fi
+
+# Install the curated game list next to the deploy tool — dos-game-deploy.sh
+# resolves repos.txt via its own SCRIPT_DIR, so --browse works from ~/.local/bin.
+REPOS_SRC="${SCRIPT_DIR}/repos.txt"
+REPOS_DST="${BIN_DIR}/repos.txt"
+if [[ -f "$REPOS_SRC" ]]; then
+    step "install $REPOS_DST"
+    if ! $DRY_RUN; then cp "$REPOS_SRC" "$REPOS_DST"; fi
+    success "Installed: $REPOS_DST"
+else
+    warn "repos.txt not found: $REPOS_SRC"
 fi
 
 # ─── Desktop shortcuts ────────────────────────────────────────────────────────

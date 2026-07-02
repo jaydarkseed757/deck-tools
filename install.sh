@@ -58,8 +58,12 @@ echo -e "${BOLD}deck-tools DOS Workstation Installer${NC}"
 echo ""
 info "Downloading deck-tools from GitHub …"
 
+# Start from a clean slate — extracting over an old tree would leave files
+# deleted upstream lingering (and runnable). $DEST is dedicated to this tool.
+rm -rf "$DEST"
 mkdir -p "$DEST"
-curl -sSL "$ARCHIVE" | tar -xz --strip-components=1 -C "$DEST"
+# -f: fail on HTTP errors instead of piping an HTML error page into tar
+curl -sSfL "$ARCHIVE" | tar -xz --strip-components=1 -C "$DEST"
 
 success "Saved to ${DEST}"
 echo ""

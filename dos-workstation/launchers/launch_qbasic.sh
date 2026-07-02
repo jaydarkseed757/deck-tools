@@ -42,6 +42,15 @@ if [[ -n "$BAS_FILE" ]]; then
         exit 1
     fi
 
+    # The qbasic config's missing-EXE guard doesn't apply on this path (we use
+    # the staging config), so check here — otherwise the user just gets DOS's
+    # "Bad command or file name" with no explanation.
+    if [[ ! -f "${DOS_ROOT}/QBASIC/QBASIC.EXE" ]]; then
+        echo "QBASIC.EXE not found in ${DOS_ROOT}/QBASIC/"
+        echo "Copy QBASIC.EXE (and QBASIC.HLP) from MS-DOS 5/6 or FreeDOS there first."
+        exit 1
+    fi
+
     # Resolve to a DOS path relative to the C: mount
     DOS_PATH="${BAS_FILE#"${DOS_ROOT}/"}"   # strip leading DOS_ROOT if present
     DOS_PATH="${DOS_PATH^^}"                # uppercase (DOS convention)

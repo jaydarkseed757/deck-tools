@@ -53,6 +53,14 @@ if [[ -z "$GAME_RAW" ]]; then
     exit 1
 fi
 
+# The name becomes the path component that gets rm -rf'd — a '/' or '..'
+# would escape ~/DOSGames/GAMES (e.g. '../GAMES' resolves to the GAMES dir
+# itself and would delete every game).
+if [[ "$GAME_RAW" == */* || "$GAME_RAW" == *..* ]]; then
+    error "Invalid game name '${GAME_RAW}' — must not contain '/' or '..'"
+    exit 1
+fi
+
 GAME_LOWER="${GAME_RAW,,}"
 GAME_UPPER="${GAME_RAW^^}"
 # Derive the title the same way dos-game-deploy.sh does — from the raw argument,
@@ -81,16 +89,9 @@ fi
 [[ -f "$LAUNCHER"   ]] && TO_REMOVE+=("$LAUNCHER")
 [[ -f "$DESKTOP"    ]] && TO_REMOVE+=("$DESKTOP")
 
-if [[ ${#TO_REMOVE[@]} -eq 0 ]]; then
-    warn "Nothing found to remove for '${GAME_LOWER}'."
-    exit 0
-fi
-
-echo "Will remove:"
-for item in "${TO_REMOVE[@]}"; do
-    echo "  $item"
-done
-
+# Detect the Steam shortcut BEFORE deciding there's nothing to do — a
+# shortcut can outlive the local artifacts (orphan) and must still be
+# removable on its own.
 HAS_STEAM_ENTRY=false
 if [[ -f "$SHORTCUTS_PY" ]]; then
     # Match the AppName field (tab-delimited, first column) exactly.
@@ -98,12 +99,26 @@ if [[ -f "$SHORTCUTS_PY" ]]; then
     # (. + ( ) etc.) as patterns; -x anchors to the whole field.
     if python3 "$SHORTCUTS_PY" list 2>/dev/null | cut -f1 | grep -Fxqi -- "${GAME_TITLE}"; then
         HAS_STEAM_ENTRY=true
-        echo "  Steam shortcut: ${GAME_TITLE}"
     fi
 fi
 
+if [[ ${#TO_REMOVE[@]} -eq 0 ]] && ! $HAS_STEAM_ENTRY; then
+    warn "Nothing found to remove for '${GAME_LOWER}'."
+    exit 0
+fi
+
+echo "Will remove:"
+for item in "${TO_REMOVE[@]+"${TO_REMOVE[@]}"}"; do
+    echo "  $item"
+done
+if $HAS_STEAM_ENTRY; then
+    echo "  Steam shortcut: ${GAME_TITLE}"
+fi
+
 echo ""
-read -rp "Confirm removal? [y/N] " REPLY
+# `|| REPLY=""` keeps set -e from aborting on EOF when stdin is not a TTY;
+# an empty reply falls through to the default-deny branch below.
+read -rp "Confirm removal? [y/N] " REPLY || REPLY=""
 if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
     info "Cancelled."
     exit 0
@@ -111,7 +126,7 @@ fi
 
 echo ""
 
-for item in "${TO_REMOVE[@]}"; do
+for item in "${TO_REMOVE[@]+"${TO_REMOVE[@]}"}"; do
     if [[ -d "$item" ]]; then
         rm -rf "$item"
         success "Removed: $item"

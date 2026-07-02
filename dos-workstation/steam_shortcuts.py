@@ -104,7 +104,11 @@ def split_raw_entries(data):
     Returns a list of bytes objects, one per shortcut.
     """
     pos = 0
-    # Skip \x00shortcuts\x00 header
+    # Skip \x00shortcuts\x00 header. A nonempty file that doesn't open with
+    # \x00 is not a binary VDF — raise instead of silently parsing to [],
+    # which would let cmd_add overwrite the file with a fresh one.
+    if data and data[pos] != 0x00:
+        raise ValueError('not a binary VDF (missing \\x00 header)')
     if pos < len(data) and data[pos] == 0x00:
         pos += 1
         pos = _skip_cstr(data, pos)
@@ -122,11 +126,13 @@ def split_raw_entries(data):
 
         # Scan fields at this depth until the entry-closing \x08
         depth = 0
+        closed = False
         while pos < len(data):
             b = data[pos]
             pos += 1
             if b == 0x08:
                 if depth == 0:
+                    closed = True
                     break          # this \x08 closes the entry
                 depth -= 1
             elif b == 0x00:        # sub-object open
@@ -137,7 +143,15 @@ def split_raw_entries(data):
                 pos = _skip_cstr(data, pos)   # value
             elif b == 0x02:        # uint32 field
                 pos = _skip_cstr(data, pos)   # key
+                if pos + 4 > len(data):
+                    raise ValueError('truncated uint32 field in shortcuts.vdf')
                 pos += 4
+
+        if not closed:
+            # Ran off the end without the entry-closing \x08 — a truncated
+            # blob must not be kept, or save_entries would re-serialize it
+            # into a corrupt file.
+            raise ValueError('truncated entry in shortcuts.vdf')
 
         entries.append(data[start:pos])
 

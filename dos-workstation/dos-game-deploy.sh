@@ -100,6 +100,12 @@ if $BROWSE && [[ -n "$IA_URL" ]]; then
     exit 1
 fi
 
+if $INTERACTIVE && [[ -n "$EXE_OVERRIDE" ]]; then
+    error "--interactive and --exe are mutually exclusive."
+    echo "  --interactive drops to a DOS prompt (no auto-run); --exe sets the EXE to auto-run."
+    exit 1
+fi
+
 if ! $BROWSE && [[ -z "$IA_URL" && $# -lt 1 ]]; then
     error "A game name, --url, or --browse is required."
     blank
@@ -247,8 +253,15 @@ PYEOF
         info "Derived game name: ${GAME_RAW}"
     fi
 
-    # Download the ZIP
-    DL_URL="https://archive.org/download/${ITEM_ID}/${DL_FILE}"
+    # Download the ZIP. The filename comes straight from archive.org metadata
+    # and often contains spaces — URL-encode it for the URL, keep it raw for
+    # the local output path.
+    DL_FILE_ENC="$(python3 - "$DL_FILE" << 'PYEOF'
+import sys, urllib.parse
+print(urllib.parse.quote(sys.argv[1]))
+PYEOF
+    )"
+    DL_URL="https://archive.org/download/${ITEM_ID}/${DL_FILE_ENC}"
     info "Downloading ${DL_FILE} …"
     curl -L --progress-bar -o "${IA_TMPDIR}/${DL_FILE}" "$DL_URL" || {
         error "Download failed: ${DL_URL}"
@@ -265,9 +278,11 @@ PYEOF
     }
 
     # Find the shallowest directory that contains at least one .exe.
-    # Sorting alphabetically puts shallower paths (shorter strings) first.
+    # Sort numerically on the depth (%d) prefix — plain alphabetical sort would
+    # pick e.g. AData/ over a shallower Game/ when EXEs sit in sibling subdirs.
+    # cut -f2- keeps everything after the first space, so paths with spaces survive.
     SRC_DIR="$(find "${IA_TMPDIR}/extracted" -maxdepth 4 -iname "*.exe" \
-                   -printf "%h\n" 2>/dev/null | sort | head -1)"
+                   -printf "%d %h\n" 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)"
 
     if [[ -z "$SRC_DIR" ]]; then
         error "No .EXE files found after extracting ${DL_FILE}."
@@ -279,6 +294,13 @@ PYEOF
 fi
 
 # ─── Derive name variables (always, after GAME_RAW is finalised) ──────────────
+# The name becomes path components under ~/DOSGames/GAMES and file names for the
+# config/launcher/desktop artifacts — a '/' or '..' would escape those directories.
+if [[ -z "$GAME_RAW" || "$GAME_RAW" == */* || "$GAME_RAW" == *..* ]]; then
+    error "Invalid game name '${GAME_RAW}' — must be non-empty and contain no '/' or '..'"
+    exit 1
+fi
+
 GAME_LOWER="${GAME_RAW,,}"
 GAME_UPPER="${GAME_RAW^^}"
 GAME_TITLE="$(tr '[:lower:]' '[:upper:]' <<< "${GAME_RAW:0:1}")${GAME_RAW:1}"
@@ -293,6 +315,8 @@ if [[ -z "$SRC_DIR" ]]; then
     #   3. <current dir>              (user ran script from inside the game folder)
     #   4. ~/Downloads/<game-name>
     #   5. ~/Desktop/<game-name>
+    #   6. ~/DOSGames/GAMES/<GAME>    (already deployed — supports the post-installer
+    #      re-deploy `<game> --exe <GAME.EXE>` from any CWD; last so fresh copies win)
 
     CANDIDATE_PATHS=()
     [[ $# -ge 2 ]] && CANDIDATE_PATHS+=("$2")
@@ -304,6 +328,7 @@ if [[ -z "$SRC_DIR" ]]; then
         "${HOME}/Downloads/${GAME_UPPER}"
         "${HOME}/Desktop/${GAME_LOWER}"
         "${HOME}/Desktop/${GAME_UPPER}"
+        "${HOME}/DOSGames/GAMES/${GAME_UPPER}"
     )
 
     for candidate in "${CANDIDATE_PATHS[@]}"; do
