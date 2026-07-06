@@ -47,7 +47,8 @@ if [[ -n "$BAS_FILE" ]]; then
     # "Bad command or file name" with no explanation.
     if [[ ! -f "${DOS_ROOT}/QBASIC/QBASIC.EXE" ]]; then
         echo "QBASIC.EXE not found in ${DOS_ROOT}/QBASIC/"
-        echo "Copy QBASIC.EXE (and QBASIC.HLP) from MS-DOS 5/6 or FreeDOS there first."
+        echo "Copy QBASIC.EXE (and QBASIC.HLP) from an MS-DOS 5/6 install there first."
+        echo "(FreeDOS doesn't ship QBASIC.EXE itself — see README.md for alternatives.)"
         exit 1
     fi
 
